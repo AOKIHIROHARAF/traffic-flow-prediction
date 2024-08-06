@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, explained_variance_score
 
 # Load the data from the CSV file
-file_path = './Graph Convolutional Network/total_actual_vs_predicted.csv'
+file_path = './Graph Convolutional Network/total_nor_actual_vs_predicted.csv'
 data = pd.read_csv(file_path)
 
 # Extract actual and predicted values

@@ -2,9 +2,8 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, GRU, Dense
-from tensorflow.keras.layers import Lambda, Reshape
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, explained_variance_score
+from tensorflow.keras.layers import Input, GRU, Dense, Lambda, Reshape
+from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
 # Load the training CSV file
@@ -16,6 +15,13 @@ df_train['time'] = pd.to_datetime(df_train['time'], format='%H:%M:%S')
 
 # Extract the hour from the time column as an integer feature
 df_train['hour'] = df_train['time'].dt.hour
+
+# Fit the scalers separately
+scaler_all = MinMaxScaler()
+df_train[['total_up', 'total_down']] = scaler_all.fit_transform(df_train[['total_up', 'total_down']])
+
+scaler_toll = MinMaxScaler()
+df_train['total_toll'] = scaler_toll.fit_transform(df_train[['total_toll']])
 
 # Extract the relevant columns (including the hour as a feature)
 features_train = df_train[['hour', 'total_up', 'total_down', 'total_toll']].values
@@ -64,6 +70,10 @@ df_test['time'] = pd.to_datetime(df_test['time'], format='%H:%M:%S')
 
 # Extract the hour from the time column as an integer feature
 df_test['hour'] = df_test['time'].dt.hour
+
+# Normalize the test features using the same scalers
+df_test[['total_up', 'total_down']] = scaler_all.transform(df_test[['total_up', 'total_down']])
+df_test['total_toll'] = scaler_toll.transform(df_test[['total_toll']])
 
 # Extract the relevant columns (including the hour as a feature)
 features_test = df_test[['hour', 'total_up', 'total_down', 'total_toll']].values
@@ -138,148 +148,40 @@ history = tgcn_model.fit(X_train_input, y_train_target, epochs=50, batch_size=16
 
 # Plot the learning process
 plt.figure(figsize=(12, 6))
-# It measures how well the model is performing on the data it is currently being trained on. 
-# A low training loss indicates that the model is fitting the training data well.
 plt.plot(history.history['loss'], label='Training Loss')
-# It measures how well the model generalizes to new, unseen data. 
-# A low validation loss suggests that the model is generalizing well.
 plt.plot(history.history['val_loss'], label='Validation Loss')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.title('Model Loss Over Epochs')
 plt.legend()
-plt.savefig('./Graph Convolutional Network/total_learning_process')
+plt.savefig('./Graph Convolutional Network/total_nor_learning_process')
 plt.show()
-
-"""
-for aj M of 200 & feature of 2000 ^
-    aj M of 150 & feature of 3000 #:
-Learning rate: 0.001
-Batch size: 64
-Training epochs: 3000
-Number of hidden units: [8, 16, 32, ^64, #100, 128]
-"""
 
 # Predict on the test set
 y_pred = tgcn_model.predict(X_test_input)
 
+# Denormalize the predicted and actual values for evaluation
+y_pred_denormalized = scaler_toll.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+y_test_target_denormalized = scaler_toll.inverse_transform(y_test_target.reshape(-1, 1)).flatten()
+
 # Plot the comparison between actual and predicted values across all data points
 plt.figure(figsize=(18, 8))
-
-plt.plot(y_test_target, label='Actual', marker='o', linestyle='-')
-plt.plot(y_pred, label='Predicted', marker='x', linestyle='--')
+plt.plot(y_test_target_denormalized, label='Actual', marker='o', linestyle='-')
+plt.plot(y_pred_denormalized, label='Predicted', marker='x', linestyle='--')
 plt.xlabel('Data Point Index')
 plt.ylabel('Total Toll')
 plt.title('Comparison of Actual vs Predicted Total Toll Values')
 plt.legend()
 plt.tight_layout()
-plt.savefig('./Graph Convolutional Network/total_prediction')
+plt.savefig('./Graph Convolutional Network/total_nor_prediction')
 plt.show()
 
 # Create a DataFrame to store the actual and predicted values
 comparison_df = pd.DataFrame({
-    'Actual': y_test_target.flatten(),   # Flatten to ensure it's a 1D array
-    'Predicted': y_pred.flatten()        # Flatten to ensure it's a 1D array
+    'Actual': y_test_target_denormalized,
+    'Predicted': y_pred_denormalized
 })
 
 # Save the DataFrame to a CSV file
-output_file_path = './Graph Convolutional Network/total_actual_vs_predicted.csv'
+output_file_path = './Graph Convolutional Network/total_nor_actual_vs_predicted.csv'
 comparison_df.to_csv(output_file_path, index=False)
-
-# Function to add value labels on bars
-def add_value_labels(ax, spacing=5):
-    """Add labels to the end of each bar in a bar chart."""
-    for rect in ax.patches:
-        # Get X and Y placement of label from rect.
-        y_value = rect.get_height()
-        x_value = rect.get_x() + rect.get_width() / 2
-
-        # Number of points between bar and label.
-        space = spacing
-        # Vertical alignment for positive values
-        va = 'bottom'
-
-        # Use Y value as label and format number with one decimal place
-        label = "{:.2f}".format(y_value)
-
-        # Create annotation
-        ax.annotate(
-            label,                       # Use `label` as label
-            (x_value, y_value),          # Place label at end of the bar
-            xytext=(0, space),           # Vertically shift label by `space`
-            textcoords="offset points",  # Interpret `xytext` as offset in points
-            ha='center',                 # Horizontally center label
-            va=va)                       # Vertically align label
-
-
-# Calculate metrics for each hour
-rmse_list = []  # Root Mean Squared Error
-mae_list = []  # Mean Absolute Error
-accuracy_list = []
-r2_list = []  # R-squared
-explained_variance_list = []
-
-for hour in range(24):
-    actual = y_test_target[(hour - 3) % 24::24]
-    predicted = y_pred[(hour - 3) % 24::24]
-    
-    rmse = np.sqrt(mean_squared_error(actual, predicted))
-    mae = mean_absolute_error(actual, predicted)
-    accuracy = 1 - (np.linalg.norm(actual - predicted) / np.linalg.norm(actual))
-    r2 = r2_score(actual, predicted)
-    explained_variance = explained_variance_score(actual, predicted)
-    
-    rmse_list.append(rmse)
-    mae_list.append(mae)
-    r2_list.append(r2)
-    accuracy_list.append(accuracy)
-    explained_variance_list.append(explained_variance)
-
-# Plot the evaluation metrics
-hours = range(24)
-
-plt.figure(figsize=(18, 15))
-
-# Plot RMSE by hour
-ax1 = plt.subplot(5, 1, 1)
-ax1.bar(hours, rmse_list)
-add_value_labels(ax1)
-plt.xlabel('Hour')
-plt.ylabel('RMSE')
-plt.title('RMSE by Hour')
-
-# Plot MAE by hour
-ax2 = plt.subplot(5, 1, 2)
-ax2.bar(hours, mae_list)
-add_value_labels(ax2)
-plt.xlabel('Hour')
-plt.ylabel('MAE')
-plt.title('MAE by Hour')
-
-# Plot R-squared by hour
-ax3 = plt.subplot(5, 1, 3)
-ax3.bar(hours, r2_list)
-add_value_labels(ax3)
-plt.xlabel('Hour')
-plt.ylabel('R-squared')
-plt.title('R-squared by Hour')
-
-# Plot Accuracy by hour
-ax4 = plt.subplot(5, 1, 4)
-ax4.bar(hours, accuracy_list)
-add_value_labels(ax4)
-plt.xlabel('Hour')
-plt.ylabel('Accuracy')
-plt.title('Accuracy by Hour')
-
-# Plot Explained Variance by hour
-ax5 = plt.subplot(5, 1, 5)
-ax5.bar(hours, explained_variance_list)
-add_value_labels(ax5)
-plt.xlabel('Hour')
-plt.ylabel('Explained Variance')
-plt.title('Explained Variance by Hour')
-
-plt.tight_layout()
-plt.savefig('./Graph Convolutional Network/total_results')
-plt.show()
